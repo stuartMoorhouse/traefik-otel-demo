@@ -1,0 +1,96 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  prometheusremotewrite:
+    endpoint: 0.0.0.0:9090
+
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      cpu:
+      memory:
+      disk:
+      network:
+      load:
+
+processors:
+  batch:
+    timeout: 10s
+    send_batch_size: 1000
+
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: demo
+        action: upsert
+      - key: service.version
+        value: 1.0.0
+        action: upsert
+      - key: data_stream.dataset
+        value: otel
+        action: upsert
+      - key: data_stream.namespace
+        value: demo
+        action: upsert
+
+  resourcedetection:
+    detectors: [system, docker]
+    timeout: 5s
+
+  elasticapm:
+
+connectors:
+  elasticapm:
+
+exporters:
+  elasticsearch/otel:
+    endpoints:
+      - ${ELASTIC_ENDPOINT}
+    api_key: ${ELASTIC_API_KEY}
+    logs_index: logs-otel-demo
+    metrics_index: metrics-otel-demo
+    traces_index: traces-otel-demo
+    compression: gzip
+    mapping:
+      mode: otel
+    logs_dynamic_index:
+      enabled: false
+    traces_dynamic_index:
+      enabled: false
+    metrics_dynamic_index:
+      enabled: false
+
+  debug:
+    verbosity: detailed
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [resourcedetection, elasticapm, resource, batch]
+      exporters: [elasticsearch/otel, elasticapm, debug]
+
+    metrics:
+      receivers: [otlp, prometheusremotewrite, hostmetrics]
+      processors: [resourcedetection, resource, batch]
+      exporters: [elasticsearch/otel, debug]
+
+    metrics/aggregated:
+      receivers: [elasticapm]
+      exporters: [elasticsearch/otel, debug]
+
+    logs:
+      receivers: [otlp]
+      processors: [resourcedetection, resource, batch]
+      exporters: [elasticsearch/otel, debug]

@@ -14,12 +14,23 @@ This project creates:
 ## Architecture
 
 ```
-Flask Weather API → EDOT Collector → Elastic Cloud
-                          ↑
-                    Prometheus
-                          ↑
-                    Host Metrics
+Flask Weather API ──┐
+                    ├─→ Prometheus ──(remote_write)──┐
+Traefik ────────────┘         │                      │
+                              │                      ├─→ EDOT Collector → Elastic Cloud
+                              ↓                      │
+                        Prometheus UI                │
+                        (port 9090)                  │
+                                                     │
+Host Metrics ────────────────────────────────────────┘
 ```
+
+**Metrics Flow:**
+- Prometheus scrapes metrics from Flask app and Traefik
+- Prometheus forwards all metrics to EDOT Collector via remote_write
+- EDOT Collector also collects host metrics directly
+- All metrics are sent to Elasticsearch for storage and visualization
+- Prometheus UI remains available for troubleshooting and validation
 
 ## Prerequisites
 
@@ -214,9 +225,36 @@ The files above should NOT appear in git status. If they do, DO NOT COMMIT. Chec
 
 ## Deployment
 
-### Option 1: Full Infrastructure with Terraform
+### Automated Deployment Flow
 
-This will create an Elastic Cloud deployment (AWS resources coming soon).
+Terraform orchestrates the complete deployment in this order:
+
+**Phase 1: Infrastructure Creation**
+1. Creates Elastic Cloud deployment with Elasticsearch and Kibana
+2. Creates AWS VPC, subnet, internet gateway, and security groups
+3. Provisions EC2 instance with Docker and required tools
+
+**Phase 2: Authentication Setup**
+4. Generates Elasticsearch API key with appropriate permissions for OTEL data ingestion
+
+**Phase 3: Data Stream Setup**
+5. Creates three pre-configured data streams in Elasticsearch:
+   - `logs-otel-demo` (LogsDB index mode)
+   - `metrics-otel-demo` (TSDB index mode)
+   - `traces-otel-demo` (standard data stream)
+
+**Phase 4: Application Deployment**
+6. Deploys Docker Compose stack with:
+   - EDOT Collector (elastic/elastic-agent:9.2.0)
+   - Flask Weather API with OpenTelemetry instrumentation
+   - Traefik reverse proxy with OTEL tracing
+   - Prometheus for metrics scraping
+
+**Phase 5: Validation & Demo**
+7. Tests connectivity to all services (Flask, Traefik, EDOT Collector)
+8. Generates demo traffic with Traefik restarts to demonstrate Use Case 1 (counter reset handling)
+
+### Run Deployment
 
 ```bash
 cd terraform
@@ -225,83 +263,57 @@ terraform plan
 terraform apply
 ```
 
+The entire process takes ~10-15 minutes and is fully automated.
+
+**After Deployment:**
+```bash
+terraform output  # View all endpoints and credentials
+```
+
 **Important: Timeout Handling**
 
-Elastic Cloud deployments take 4-5 minutes to create. The ec_deployment provider doesn't support configurable timeouts, so Terraform may timeout after ~2 minutes while the deployment continues in the background. If you encounter a timeout:
+Elastic Cloud deployments take 4-5 minutes. If Terraform times out during `ec_deployment` creation, wait 5 minutes then run `terraform refresh` followed by `terraform plan` to verify state before re-applying.
 
-1. **DO NOT run `terraform apply` again immediately** - this could create duplicate resources
-2. Wait 3-5 minutes for Elastic Cloud to complete the deployment in the background
-3. Run `terraform refresh` to update state with the completed deployment
-4. Run `terraform plan` to verify the state is correct
-5. Only run `terraform apply` again if the plan shows missing resources
+## What Gets Created
 
-After successful deployment, get the outputs:
-```bash
-terraform output                              # View all outputs
-terraform output -raw elasticsearch_password  # Get elastic user password
-terraform output -raw apm_secret_token        # Get APM secret token
+### Elasticsearch Data Streams
+- `logs-otel-demo` - LogsDB for efficient log storage
+- `metrics-otel-demo` - TSDB optimized for time-series data
+- `traces-otel-demo` - Standard data stream for traces
+
+### Services on EC2
+Get the public IP from Terraform output, then access:
+- Flask Weather API: `http://<ec2-ip>:5000`
+- Traefik Dashboard: `http://<ec2-ip>:8080`
+- Prometheus: `http://<ec2-ip>:9090`
+
+### In Kibana
+After deployment, open Kibana and navigate to:
+- **Observability → APM → Services**: See "weather-api" and "traefik" services with traces
+- **Discover**: Query `logs-otel-demo`, `metrics-otel-demo`, `traces-otel-demo` data streams
+- **Metrics**: View counter reset demonstration data from Traefik restarts
+
+## Use Case Demonstrations
+
+### Use Case 1: Counter Reset Handling
+The deployment automatically runs traffic generation with Traefik restarts. View results in Kibana:
+
+**ES|QL Query to Handle Counter Resets:**
+```sql
+FROM metrics-otel-demo
+| WHERE metric.name == "traefik_entrypoint_requests_total"
+| EVAL rate_value = rate(metric.value)
+| STATS request_rate = SUM(rate_value) BY bucket(@timestamp, 30 seconds)
 ```
 
-### Option 2: Local Docker Development (Available Now)
+The `rate()` function automatically detects and handles counter resets from Traefik restarts.
 
-This runs the observable weather API locally and sends data to your existing Elastic Cloud deployment.
-
+### Manually Generate More Traffic
+SSH into the EC2 instance to run the traffic script again:
 ```bash
-# Ensure .env file is configured (see Step 4 above)
-docker-compose up -d
-```
-
-## Verification
-
-### Check Services
-```bash
-docker-compose ps
-```
-
-All services should be "Up".
-
-### View Logs
-```bash
-# EDOT Collector logs
-docker-compose logs -f edot-collector
-
-# Flask app logs
-docker-compose logs -f flask-app
-```
-
-### Test Endpoints
-```bash
-# Health check
-curl http://localhost:5000/health
-
-# Weather API
-curl http://localhost:5000/weather/stockholm
-
-# Prometheus metrics
-curl http://localhost:5000/prometheus
-```
-
-### Local Observability UIs
-- Traefik Dashboard: http://localhost:8080
-- Prometheus: http://localhost:9090
-- EDOT Collector Health: http://localhost:13133
-- EDOT Collector Metrics: http://localhost:8888/metrics
-
-### View in Elastic Cloud
-1. Navigate to your Elastic Cloud deployment
-2. Open Kibana
-3. Go to "Observability" → "APM" → "Services"
-4. You should see "weather-api" service
-5. Click on it to see traces and metrics
-
-## Generate Test Traffic
-
-```bash
-# Simple load test
-for i in {1..100}; do
-  curl http://localhost:5000/weather/stockholm
-  sleep 0.5
-done
+ssh -i <your-key>.pem ubuntu@<ec2-ip>
+cd /home/ubuntu/traefik-otel-demo
+./generate-traffic-with-restarts.sh
 ```
 
 ## Troubleshooting

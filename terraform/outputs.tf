@@ -107,3 +107,51 @@ ELASTIC_API_KEY=<CREATE_THIS_IN_KIBANA>
   EOT
   sensitive = true
 }
+
+# ============================================================================
+# EC2 Instance Outputs
+# ============================================================================
+
+output "ec2_instance_id" {
+  description = "EC2 instance ID"
+  value       = aws_instance.demo.id
+}
+
+output "ec2_public_ip" {
+  description = "EC2 instance public IP address"
+  value       = aws_instance.demo.public_ip
+}
+
+output "ec2_public_dns" {
+  description = "EC2 instance public DNS name"
+  value       = aws_instance.demo.public_dns
+}
+
+output "ec2_private_key_path" {
+  description = "Path to the generated private SSH key"
+  value       = local_file.private_key.filename
+}
+
+output "ec2_ssh_command" {
+  description = "SSH command to connect to the instance"
+  value       = "ssh -i ${local_file.private_key.filename} ubuntu@${aws_instance.demo.public_ip}"
+}
+
+# ============================================================================
+# Service URLs
+# ============================================================================
+
+output "traefik_dashboard_url" {
+  description = "Traefik Dashboard URL"
+  value       = "http://${aws_instance.demo.public_ip}:8080"
+}
+
+output "flask_app_url" {
+  description = "Flask Application URL"
+  value       = "http://${aws_instance.demo.public_ip}:5000"
+}
+
+output "prometheus_url" {
+  description = "Prometheus URL"
+  value       = "http://${aws_instance.demo.public_ip}:9090"
+}

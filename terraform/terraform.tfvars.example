@@ -1,11 +1,10 @@
 # AWS Configuration
 aws_region        = "us-east-1"
-aws_instance_type = "t3.medium"
-key_name          = "your-ssh-key-name"  # Replace with your AWS SSH key name
+aws_instance_type = "t3.large"  # 2 vCPUs, 8GB RAM
 
 # Elastic Cloud Configuration
 ec_region                = "aws-us-east-1"  # Must match AWS region or be nearby
-deployment_name          = "jaeger-otel-demo"
+deployment_name          = "traefik-otel-demo"
 elasticsearch_size       = "1g"
 elasticsearch_zone_count = 1
 
@@ -14,4 +13,4 @@ allowed_ssh_cidr = "YOUR.IP.ADDRESS/32"  # Replace with your IP for security
 vpc_cidr         = "10.0.0.0/16"
 
 # Project
-project_name = "jaeger-otel-demo"
+project_name = "traefik-otel-demo"
