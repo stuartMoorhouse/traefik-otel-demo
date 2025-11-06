@@ -19,7 +19,10 @@ services:
       - demo-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.flask.rule=PathPrefix(`/api`)"
+      - "traefik.http.routers.flask.rule=PathPrefix(`/api/weather`) || PathPrefix(`/api/health`)"
+      - "traefik.http.routers.flask.entrypoints=web"
+      - "traefik.http.routers.flask.middlewares=strip-api"
+      - "traefik.http.middlewares.strip-api.stripprefix.prefixes=/api"
       - "traefik.http.services.flask.loadbalancer.server.port=5000"
 
   traefik:
