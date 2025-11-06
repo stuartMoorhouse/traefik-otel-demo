@@ -124,8 +124,6 @@ processors:
     detectors: [system, docker]
     timeout: 5s
 
-  elasticapm:
-
 connectors:
   elasticapm:
 
