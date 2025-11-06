@@ -1,0 +1,197 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Scrape Traefik directly
+  prometheus/traefik:
+    config:
+      scrape_configs:
+        - job_name: 'traefik'
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['traefik:8080']
+          metrics_path: '/metrics'
+
+  # Scrape Flask directly
+  prometheus/flask:
+    config:
+      scrape_configs:
+        - job_name: 'flask-app'
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['flask-app:5000']
+          metrics_path: '/metrics'
+
+  # Collect host metrics
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      cpu:
+      memory:
+      disk:
+      network:
+      load:
+
+processors:
+  batch:
+    timeout: 10s
+    send_batch_size: 1000
+
+  # Traefik metrics → metrics-traefik.otel-default
+  resource/traefik:
+    attributes:
+      - key: deployment.environment
+        value: demo
+        action: upsert
+      - key: data_stream.type
+        value: metrics
+        action: upsert
+      - key: data_stream.dataset
+        value: traefik
+        action: upsert
+      - key: data_stream.namespace
+        value: default
+        action: upsert
+
+  # Flask metrics → metrics-flask.otel-default
+  resource/flask:
+    attributes:
+      - key: deployment.environment
+        value: demo
+        action: upsert
+      - key: data_stream.type
+        value: metrics
+        action: upsert
+      - key: data_stream.dataset
+        value: flask
+        action: upsert
+      - key: data_stream.namespace
+        value: default
+        action: upsert
+
+  # Host metrics → metrics-host.otel-default
+  resource/host:
+    attributes:
+      - key: deployment.environment
+        value: demo
+        action: upsert
+      - key: data_stream.type
+        value: metrics
+        action: upsert
+      - key: data_stream.dataset
+        value: host
+        action: upsert
+      - key: data_stream.namespace
+        value: default
+        action: upsert
+
+  # Flask traces → traces-flask.otel-default
+  resource/traces:
+    attributes:
+      - key: deployment.environment
+        value: demo
+        action: upsert
+      - key: data_stream.type
+        value: traces
+        action: upsert
+      - key: data_stream.dataset
+        value: apm
+        action: upsert
+      - key: data_stream.namespace
+        value: default
+        action: upsert
+
+  # Flask logs → logs-flask.otel-default
+  resource/logs:
+    attributes:
+      - key: deployment.environment
+        value: demo
+        action: upsert
+      - key: data_stream.type
+        value: logs
+        action: upsert
+      - key: data_stream.dataset
+        value: apm
+        action: upsert
+      - key: data_stream.namespace
+        value: default
+        action: upsert
+
+  resourcedetection:
+    detectors: [system, docker]
+    timeout: 5s
+
+  elasticapm:
+
+connectors:
+  elasticapm:
+
+exporters:
+  # Native Elasticsearch OTLP endpoint
+  otlphttp/elastic:
+    endpoint: https://f8eb737865d740c9b480ea81047abd59.us-east-1.aws.found.io/_otlp
+    headers:
+      Authorization: ApiKey VmJVZVZwb0J2THhzam9MTEs0eGk6aUdvOXVqRUp6VEZ5blFkU20yZTN4dw==
+    compression: gzip
+
+  # Elasticsearch exporter for traces/logs
+  elasticsearch:
+    endpoints:
+      - https://f8eb737865d740c9b480ea81047abd59.us-east-1.aws.found.io:443
+    api_key: VmJVZVZwb0J2THhzam9MTEs0eGk6aUdvOXVqRUp6VEZ5blFkU20yZTN4dw==
+    compression: gzip
+    mapping:
+      mode: otel
+
+  debug:
+    verbosity: basic
+    sampling_initial: 2
+    sampling_thereafter: 100
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  
+  pipelines:
+    # Traefik metrics → metrics-traefik.otel-default (TSDB)
+    metrics/traefik:
+      receivers: [prometheus/traefik]
+      processors: [resourcedetection, resource/traefik, batch]
+      exporters: [otlphttp/elastic, debug]
+
+    # Flask metrics → metrics-flask.otel-default (TSDB)
+    metrics/flask:
+      receivers: [prometheus/flask, otlp]
+      processors: [resourcedetection, resource/flask, batch]
+      exporters: [otlphttp/elastic, debug]
+
+    # Host metrics → metrics-host.otel-default (TSDB)
+    metrics/host:
+      receivers: [hostmetrics]
+      processors: [resourcedetection, resource/host, batch]
+      exporters: [otlphttp/elastic, debug]
+
+    # APM aggregated metrics → metrics-flask.otel-default
+    metrics/aggregated:
+      receivers: [elasticapm]
+      processors: [resourcedetection, resource/flask, batch]
+      exporters: [otlphttp/elastic, debug]
+
+    # Traces → traces-flask.otel-default
+    traces:
+      receivers: [otlp]
+      processors: [resourcedetection, resource/traces, batch]
+      exporters: [elasticsearch, elasticapm, debug]
+
+    # Logs → logs-flask.otel-default
+    logs:
+      receivers: [otlp]
+      processors: [resourcedetection, resource/logs, batch]
+      exporters: [elasticsearch, debug]

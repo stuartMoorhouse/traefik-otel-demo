@@ -295,25 +295,116 @@ After deployment, open Kibana and navigate to:
 
 ## Use Case Demonstrations
 
-### Use Case 1: Counter Reset Handling
-The deployment automatically runs traffic generation with Traefik restarts. View results in Kibana:
+### Use Case 1: Traefik Counter Reset Handling
 
-**ES|QL Query to Handle Counter Resets:**
-```sql
-FROM metrics-otel-demo
-| WHERE metric.name == "traefik_entrypoint_requests_total"
-| EVAL rate_value = rate(metric.value)
-| STATS request_rate = SUM(rate_value) BY bucket(@timestamp, 30 seconds)
+**Requirement**: Calculate rate from Traefik failed request counter metrics without visual spikes when counters reset
+
+**Problem**: Traefik exposes Prometheus counter metrics (like `traefik_entrypoint_requests_total`) that continuously increase over time. When Traefik restarts, these counters reset to 0. Traditional rate calculations create massive spikes or negative values at reset points, making graphs unusable.
+
+**Solution**: Use ES|QL's `RATE()` function with TSDB counter data. The `RATE()` function automatically detects counter resets (when values decrease) and calculates rates correctly without spikes.
+
+**ES|QL Query**:
+```esql
+// Query: Calculate rate of failed requests (4xx/5xx) from Traefik counters
+//
+// How it works:
+// 1. TS command - Required for time-series data with counter types (enables RATE function)
+// 2. Filter to failed requests (4xx/5xx status codes) in the last hour
+// 3. RATE() - Calculates per-second rate and automatically handles counter resets
+//    (when Traefik restarts and counter goes back to 0, RATE detects the reset
+//     and calculates correctly without creating spikes)
+// 4. AVG(RATE(...)) - Aggregates rate within each 5-minute time bucket
+// 5. BUCKET(@timestamp, 5 minutes) - Groups data into 5-minute intervals for graphing
+// 6. BY entrypoint - Creates separate series for each Traefik entrypoint (web, websecure, etc.)
+// 7. Convert to requests per minute for easier interpretation
+//
+// Key insight: RATE() is counter-reset aware - it detects decreasing values
+// and handles them correctly instead of showing massive negative spikes
+
+TS metrics-traefik.otel-default
+| WHERE traefik_entrypoint_requests_total IS NOT NULL
+  AND @timestamp > NOW() - 1 hour
+  AND (STARTS_WITH(code, "4") OR STARTS_WITH(code, "5"))
+| STATS rate_per_sec = AVG(RATE(traefik_entrypoint_requests_total))
+    BY BUCKET(@timestamp, 5 minutes), entrypoint
+| EVAL rate_per_min = rate_per_sec * 60
+| DROP rate_per_sec
 ```
 
-The `rate()` function automatically detects and handles counter resets from Traefik restarts.
+**What is a counter?**
+A Prometheus counter is a cumulative metric that only increases (100 → 150 → 200 → 250...) and only resets to 0 when the process restarts. Raw counter values aren't useful - you need the rate (change per unit time). The `RATE()` function calculates this derivative while handling resets.
+
+---
+
+### Use Case 2: Traefik Aggregated Rate Calculation
+
+**Requirement**: Calculate and graph combined request rate across multiple Traefik entrypoints with high cardinality
+
+**Problem**: When you have many Traefik entrypoints (web, websecure, traefik, etc.) each with their own counters, you cannot simply sum the counter values and then calculate rate. Why? Because different entrypoints may restart at different times, causing their counters to reset independently. Calculating rate from summed counters produces incorrect results.
+
+**Solution**: Calculate rate for each individual time series first (handling each counter's resets independently), then sum the rates together. This is the fundamental principle: **rate-then-aggregate, not aggregate-then-rate**.
+
+**ES|QL Query**:
+```esql
+// Query: Calculate total aggregated request rate across all Traefik entrypoints
+//
+// How it works:
+// 1. Start with entrypoint-level counter metrics (traefik_entrypoint_requests_total)
+// 2. Calculate RATE for each individual entrypoint/code/method combination
+//    - This is critical: RATE must be calculated per time-series FIRST
+//    - Each entrypoint can reset independently (separate containers, restarts, etc.)
+//    - RATE handles each counter's resets separately
+// 3. Convert individual rates to per-minute
+// 4. SUM all individual rates together to get total request rate
+//    - Now it's safe to aggregate because resets were handled at the per-series level
+// 5. Group by time buckets to create a time-series graph showing total traffic
+//
+// Key insight: You MUST calculate rate on individual time series first, then aggregate.
+// If you sum counters first and calculate rate after, you get wrong results when
+// different entrypoints reset at different times (e.g., one restarts while others don't).
+//
+// Example of why order matters:
+// - Entrypoint A: 100 → 150 → 200 (rate: 50/min, 50/min)
+// - Entrypoint B: 500 → 550 → 0 → 50 (rate: 50/min, 50/min, 50/min - reset handled!)
+// - Correct (rate then sum): 100/min, 100/min, 100/min
+// - Wrong (sum then rate): 600 → 700 → 200 → massive spike at reset!
+
+TS metrics-traefik.otel-default
+| WHERE traefik_entrypoint_requests_total IS NOT NULL
+  AND @timestamp > NOW() - 1 hour
+| STATS rate_per_sec = AVG(RATE(traefik_entrypoint_requests_total))
+    BY time_bucket = BUCKET(@timestamp, 5 minutes), entrypoint, code, method, protocol
+| EVAL rate_per_min = rate_per_sec * 60
+| STATS total_rate_per_min = SUM(rate_per_min) BY time_bucket
+```
+
+**Note on terminology**: "Entrypoint" in Traefik means the port/protocol where Traefik listens for incoming traffic (e.g., port 80 for HTTP, port 443 for HTTPS). This query aggregates across all entry points to show total traffic rate.
+
+---
 
 ### Manually Generate More Traffic
-SSH into the EC2 instance to run the traffic script again:
+
+To generate varied traffic patterns with counter resets for testing:
+
 ```bash
 ssh -i <your-key>.pem ubuntu@<ec2-ip>
 cd /home/ubuntu/traefik-otel-demo
-./generate-traffic-with-restarts.sh
+
+# Generate traffic bursts with Traefik restart in the middle
+for i in {1..5}; do
+  curl -s http://localhost:5000/weather/london > /dev/null
+  curl -s http://localhost:5000/weather/tokyo > /dev/null
+  curl -s http://localhost:5000/nonexistent > /dev/null  # Generates 404s
+done
+
+# Restart Traefik to trigger counter reset
+docker-compose restart traefik
+
+# Continue generating traffic after restart
+for i in {1..5}; do
+  curl -s http://localhost:5000/weather/london > /dev/null
+  curl -s http://localhost:5000/nonexistent > /dev/null
+done
 ```
 
 ## Troubleshooting
