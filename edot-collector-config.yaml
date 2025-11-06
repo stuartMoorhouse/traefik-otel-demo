@@ -6,39 +6,55 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
-  # Scrape Traefik metrics
-  prometheus/traefik:
+  # Federate ALL metrics from Prometheus server
+  # Prometheus scrapes Traefik, Flask, and Node Exporter
+  # EDOT fetches all metrics from Prometheus via /federate endpoint
+  prometheus:
     config:
       scrape_configs:
-        - job_name: 'traefik'
+        - job_name: 'prometheus-federation'
           scrape_interval: 15s
+          honor_labels: true  # Preserve original job labels from Prometheus
+          metrics_path: '/federate'
+          params:
+            'match[]':
+              - '{job="traefik"}'       # Get all Traefik metrics
+              - '{job="flask-app"}'     # Get all Flask metrics
+              - '{job="node-exporter"}' # Get all Node Exporter metrics
           static_configs:
-            - targets: ['traefik:8080']
-          metrics_path: '/metrics'
-
-  # Scrape Flask metrics
-  prometheus/flask:
-    config:
-      scrape_configs:
-        - job_name: 'flask-app'
-          scrape_interval: 15s
-          static_configs:
-            - targets: ['flask-app:5000']
-          metrics_path: '/metrics'
-
-  # Scrape Node Exporter metrics
-  prometheus/node:
-    config:
-      scrape_configs:
-        - job_name: 'node-exporter'
-          scrape_interval: 15s
-          static_configs:
-            - targets: ['node-exporter:9100']
+            - targets: ['prometheus:9090']
 
 processors:
   batch:
     timeout: 10s
     send_batch_size: 1000
+
+  # Filter for Traefik metrics (from federated Prometheus)
+  filter/traefik:
+    metrics:
+      include:
+        match_type: strict
+        metric_names:
+          - traefik_*  # All Traefik metrics start with traefik_
+
+  # Filter for Flask metrics (from federated Prometheus)
+  filter/flask:
+    metrics:
+      include:
+        match_type: regexp
+        metric_names:
+          - flask_.*
+          - python_.*
+          - process_.*
+          - http_.*
+
+  # Filter for Node Exporter metrics (from federated Prometheus)
+  filter/node:
+    metrics:
+      include:
+        match_type: strict
+        metric_names:
+          - node_*  # All Node Exporter metrics start with node_
 
   # Traefik metrics → metrics-traefik.otel-default
   resource/traefik:
@@ -157,29 +173,29 @@ service:
   extensions: [health_check]
   
   pipelines:
-    # Traefik metrics → metrics-traefik.otel-default (TSDB)
+    # Traefik metrics from Prometheus Federation → metrics-traefik.otel-default (TSDB)
     metrics/traefik:
-      receivers: [prometheus/traefik]
-      processors: [resourcedetection, resource/traefik, batch]
-      exporters: [otlphttp/elastic, debug]
+      receivers: [prometheus]
+      processors: [filter/traefik, resourcedetection, resource/traefik, batch]
+      exporters: [elasticsearch, debug]
 
-    # Flask metrics → metrics-flask.otel-default (TSDB)
+    # Flask metrics from Prometheus Federation → metrics-flask.otel-default (TSDB)
     metrics/flask:
-      receivers: [prometheus/flask]
-      processors: [resourcedetection, resource/flask, batch]
-      exporters: [otlphttp/elastic, debug]
+      receivers: [prometheus]
+      processors: [filter/flask, resourcedetection, resource/flask, batch]
+      exporters: [elasticsearch, debug]
 
-    # Node Exporter metrics → metrics-node.otel-default (TSDB)
+    # Node Exporter metrics from Prometheus Federation → metrics-node.otel-default (TSDB)
     metrics/node:
-      receivers: [prometheus/node]
-      processors: [resourcedetection, resource/node, batch]
-      exporters: [otlphttp/elastic, debug]
+      receivers: [prometheus]
+      processors: [filter/node, resourcedetection, resource/node, batch]
+      exporters: [elasticsearch, debug]
 
     # APM aggregated metrics → metrics-flask.otel-default
     metrics/aggregated:
       receivers: [elasticapm]
       processors: [resourcedetection, resource/flask, batch]
-      exporters: [otlphttp/elastic, debug]
+      exporters: [elasticsearch, debug]
 
     # Traces → traces-flask.otel-default
     traces:
