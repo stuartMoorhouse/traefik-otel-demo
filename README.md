@@ -14,34 +14,38 @@ This project creates:
 ## Architecture
 
 ```
-                    ┌─→ Prometheus ──→ Prometheus UI (port 9090)
-                    │
+                    ┌─→ Prometheus UI (port 9090)
+                    │   (PromQL queries, debugging)
 Flask Weather API ──┤
                     │
-                    └─→ EDOT Collector ──→ Elastic Cloud
-                                  ↑
-                    ┌─────────────┤
-                    │             │
-Traefik ────────────┤             │
-                    │             │
-                    └─────────────┘
-                                  ↑
-                    ┌─────────────┤
-                    │
+Traefik ────────────┼─→ Prometheus ──→ /federate ──→ EDOT Collector ──→ Elastic Cloud
+                    │      (TSDB)         endpoint        (Federation)
 Node Exporter ──────┤
   (System Metrics)  │
-                    └─────────────┘
+                    └─→ Local Storage
 ```
 
-**Metrics Flow:**
-- **Prometheus** scrapes metrics from Flask app, Traefik, and Node Exporter
-  - Stores locally in TSDB for Prometheus UI access (port 9090)
-  - Useful for debugging and ad-hoc PromQL queries
-- **EDOT Collector** also scrapes the same targets independently
-  - Applies resource processors to route to separate data streams
-  - Sends all metrics to Elasticsearch with TSDB mode enabled
-- **Node Exporter** provides system metrics (CPU, memory, disk, network, load)
-- **Traces and Logs** from Flask go directly to EDOT via OTLP protocol
+**Metrics Flow (Prometheus Federation):**
+
+1. **Prometheus** is the primary metrics collector
+   - Scrapes metrics from Flask app (`/metrics` endpoint)
+   - Scrapes metrics from Traefik (`/metrics` endpoint)
+   - Scrapes metrics from Node Exporter (system metrics)
+   - Stores all metrics locally in TSDB
+   - Exposes `/federate` endpoint for downstream consumers
+
+2. **EDOT Collector** fetches FROM Prometheus
+   - Uses Prometheus receiver with `/federate` endpoint
+   - Fetches all metrics that Prometheus has collected
+   - `honor_labels: true` preserves original job labels
+   - Applies resource processors to route to separate data streams
+   - Sends all metrics to Elasticsearch via OTLP endpoint
+
+3. **Benefits of this approach**
+   - Single source of truth: Prometheus scrapes all targets once
+   - Consistent data: Prometheus UI and Elasticsearch show same metrics
+   - Prometheus UI available for debugging and PromQL queries
+   - EDOT focuses on export to Elasticsearch (no duplicate scraping)
 
 **Data Streams in Elasticsearch:**
 - `metrics-traefik.otel-default` - Traefik proxy metrics (counters with TSDB)
@@ -50,11 +54,11 @@ Node Exporter ──────┤
 - `traces-apm.otel-default` - Distributed traces from Flask
 - `logs-apm.otel-default` - Application logs from Flask
 
-**Why both Prometheus and EDOT scrape?**
-- EDOT (Elastic Distribution of OpenTelemetry) doesn't support Prometheus remote_write receiver
-- Both scrape independently, providing redundancy and different use cases
-- Prometheus UI excellent for quick debugging and PromQL exploration
-- Elasticsearch provides long-term storage, ES|QL queries, and APM integration
+**Why Prometheus Federation (not remote_write)?**
+- EDOT doesn't support `prometheusremotewrite` receiver
+- Federation (`/federate`) is natively supported by Prometheus receiver in EDOT
+- Provides pull-based architecture (EDOT pulls from Prometheus)
+- Allows selective metric federation using `match[]` parameters
 
 ## Prerequisites
 
