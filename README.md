@@ -14,23 +14,47 @@ This project creates:
 ## Architecture
 
 ```
-Flask Weather API ──┐
-                    ├─→ Prometheus ──(remote_write)──┐
-Traefik ────────────┘         │                      │
-                              │                      ├─→ EDOT Collector → Elastic Cloud
-                              ↓                      │
-                        Prometheus UI                │
-                        (port 9090)                  │
-                                                     │
-Host Metrics ────────────────────────────────────────┘
+                    ┌─→ Prometheus ──→ Prometheus UI (port 9090)
+                    │
+Flask Weather API ──┤
+                    │
+                    └─→ EDOT Collector ──→ Elastic Cloud
+                                  ↑
+                    ┌─────────────┤
+                    │             │
+Traefik ────────────┤             │
+                    │             │
+                    └─────────────┘
+                                  ↑
+                    ┌─────────────┤
+                    │
+Node Exporter ──────┤
+  (System Metrics)  │
+                    └─────────────┘
 ```
 
 **Metrics Flow:**
-- Prometheus scrapes metrics from Flask app and Traefik
-- Prometheus forwards all metrics to EDOT Collector via remote_write
-- EDOT Collector also collects host metrics directly
-- All metrics are sent to Elasticsearch for storage and visualization
-- Prometheus UI remains available for troubleshooting and validation
+- **Prometheus** scrapes metrics from Flask app, Traefik, and Node Exporter
+  - Stores locally in TSDB for Prometheus UI access (port 9090)
+  - Useful for debugging and ad-hoc PromQL queries
+- **EDOT Collector** also scrapes the same targets independently
+  - Applies resource processors to route to separate data streams
+  - Sends all metrics to Elasticsearch with TSDB mode enabled
+- **Node Exporter** provides system metrics (CPU, memory, disk, network, load)
+- **Traces and Logs** from Flask go directly to EDOT via OTLP protocol
+
+**Data Streams in Elasticsearch:**
+- `metrics-traefik.otel-default` - Traefik proxy metrics (counters with TSDB)
+- `metrics-flask.otel-default` - Flask application metrics
+- `metrics-node.otel-default` - System/host metrics from Node Exporter
+- `traces-apm.otel-default` - Distributed traces from Flask
+- `logs-apm.otel-default` - Application logs from Flask
+
+**Why both Prometheus and EDOT scrape?**
+- EDOT (Elastic Distribution of OpenTelemetry) doesn't support Prometheus remote_write receiver
+- Both scrape independently, providing redundancy and different use cases
+- Prometheus UI excellent for quick debugging and PromQL exploration
+- Elasticsearch provides long-term storage, ES|QL queries, and APM integration
 
 ## Prerequisites
 

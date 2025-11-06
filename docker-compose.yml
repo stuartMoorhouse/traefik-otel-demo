@@ -1,0 +1,107 @@
+services:
+  flask-app:
+    build: .
+    container_name: flask-app
+    ports:
+      - "5000:5000"
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://edot-collector:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_SERVICE_NAME=weather-api
+      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=demo,service.version=1.0.0
+      - ELASTIC_OTEL_LOG_LEVEL=debug
+    depends_on:
+      - edot-collector
+    networks:
+      - demo-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.flask.rule=PathPrefix(`/api`)"
+      - "traefik.http.services.flask.loadbalancer.server.port=5000"
+
+  traefik:
+    image: traefik:v3.2
+    container_name: traefik
+    command:
+      - "--configFile=/etc/traefik/traefik.yml"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+    depends_on:
+      - edot-collector
+    networks:
+      - demo-network
+
+  edot-collector:
+    image: elastic/elastic-agent:9.2.0
+    container_name: edot-collector
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+    restart: unless-stopped
+    command: ["--config", "/etc/otelcol-config.yml"]
+    user: "0:0"
+    volumes:
+      - /:/hostfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./edot-collector-config.yaml:/etc/otelcol-config.yml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Prometheus metrics (EDOT's own metrics)
+      - "13133:13133" # Health check endpoint
+      # Note: Port 9090 (Prometheus remote_write receiver) is not exposed to host
+      # It's only used for internal Docker network communication with Prometheus container
+    environment:
+      - ELASTIC_AGENT_OTEL=true
+      - ELASTIC_ENDPOINT=${ELASTIC_ENDPOINT}
+      - ELASTIC_API_KEY=${ELASTIC_API_KEY}
+      - HOST_FILESYSTEM=/hostfs
+      - STORAGE_DIR=/usr/share/elastic-agent
+    env_file:
+      - .env
+    networks:
+      - demo-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"  # Prometheus UI - view metrics at http://ec2-ip:9090
+    depends_on:
+      - edot-collector
+    networks:
+      - demo-network
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    command:
+      - '--path.rootfs=/host'
+    volumes:
+      - /:/host:ro,rslave
+    pid: host
+    restart: unless-stopped
+    networks:
+      - demo-network
+
+networks:
+  demo-network:
+    driver: bridge
+
+volumes:
+  prometheus-data:

@@ -6,7 +6,7 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
-  # Scrape Traefik directly
+  # Scrape Traefik metrics
   prometheus/traefik:
     config:
       scrape_configs:
@@ -16,7 +16,7 @@ receivers:
             - targets: ['traefik:8080']
           metrics_path: '/metrics'
 
-  # Scrape Flask directly
+  # Scrape Flask metrics
   prometheus/flask:
     config:
       scrape_configs:
@@ -26,15 +26,14 @@ receivers:
             - targets: ['flask-app:5000']
           metrics_path: '/metrics'
 
-  # Collect host metrics
-  hostmetrics:
-    collection_interval: 30s
-    scrapers:
-      cpu:
-      memory:
-      disk:
-      network:
-      load:
+  # Scrape Node Exporter metrics
+  prometheus/node:
+    config:
+      scrape_configs:
+        - job_name: 'node-exporter'
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['node-exporter:9100']
 
 processors:
   batch:
@@ -73,8 +72,8 @@ processors:
         value: default
         action: upsert
 
-  # Host metrics → metrics-host.otel-default
-  resource/host:
+  # Node Exporter metrics → metrics-node.otel-default
+  resource/node:
     attributes:
       - key: deployment.environment
         value: demo
@@ -83,7 +82,7 @@ processors:
         value: metrics
         action: upsert
       - key: data_stream.dataset
-        value: host
+        value: node
         action: upsert
       - key: data_stream.namespace
         value: default
@@ -168,14 +167,14 @@ service:
 
     # Flask metrics → metrics-flask.otel-default (TSDB)
     metrics/flask:
-      receivers: [prometheus/flask, otlp]
+      receivers: [prometheus/flask]
       processors: [resourcedetection, resource/flask, batch]
       exporters: [otlphttp/elastic, debug]
 
-    # Host metrics → metrics-host.otel-default (TSDB)
-    metrics/host:
-      receivers: [hostmetrics]
-      processors: [resourcedetection, resource/host, batch]
+    # Node Exporter metrics → metrics-node.otel-default (TSDB)
+    metrics/node:
+      receivers: [prometheus/node]
+      processors: [resourcedetection, resource/node, batch]
       exporters: [otlphttp/elastic, debug]
 
     # APM aggregated metrics → metrics-flask.otel-default
