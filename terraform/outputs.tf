@@ -45,50 +45,6 @@ output "kibana_endpoint" {
   value       = ec_deployment.traefik_otel_demo.kibana.https_endpoint
 }
 
-# Instructions for next steps
-output "next_steps" {
-  description = "Instructions for completing the setup"
-  value       = <<-EOT
-
-  ========================================
-  Elastic Cloud Deployment Created!
-  ========================================
-
-  Deployment ID: ${ec_deployment.traefik_otel_demo.id}
-
-  IMPORTANT NEXT STEPS:
-
-  1. View all outputs (including sensitive values):
-     terraform output
-
-  2. View sensitive values individually:
-     terraform output -raw elasticsearch_password
-
-  3. Create an API key for OTel data ingestion:
-     - Open Kibana: ${ec_deployment.traefik_otel_demo.kibana.https_endpoint}
-     - Login with username 'elastic' and password from: terraform output -raw elasticsearch_password
-     - Go to: Stack Management → Security → API Keys
-     - Create API Key with name: traefik-otel-demo-ingest
-     - Grant privileges:
-       * Cluster: monitor
-       * Index privileges on metrics-*, traces-*, logs-*: create_doc, auto_configure, create_index
-     - Copy the Base64 encoded key
-
-  4. Create your .env file:
-     cd ..
-     cp .env.example .env
-
-  5. Edit .env with the Elasticsearch endpoint and API key:
-     ELASTIC_ENDPOINT=${ec_deployment.traefik_otel_demo.elasticsearch.https_endpoint}
-     ELASTIC_API_KEY=<created in step 3>
-
-  6. Start the demo application:
-     docker-compose up -d
-
-  ========================================
-  EOT
-}
-
 # Summary output for easy .env file creation
 output "env_file_template" {
   description = "Template for .env file (fill in ELASTIC_API_KEY manually)"
@@ -109,7 +65,7 @@ ELASTIC_API_KEY=<CREATE_THIS_IN_KIBANA>
 }
 
 # ============================================================================
-# EC2 Instance Outputs
+# EC2 / Infrastructure Outputs
 # ============================================================================
 
 output "ec2_instance_id" {
@@ -117,41 +73,67 @@ output "ec2_instance_id" {
   value       = aws_instance.demo.id
 }
 
-output "ec2_public_ip" {
-  description = "EC2 instance public IP address"
-  value       = aws_instance.demo.public_ip
+output "ec2_private_ip" {
+  description = "EC2 instance private IP address"
+  value       = aws_instance.demo.private_ip
 }
 
-output "ec2_public_dns" {
-  description = "EC2 instance public DNS name"
-  value       = aws_instance.demo.public_dns
+output "ssm_connect_command" {
+  description = "AWS SSM command to connect to the instance"
+  value       = "aws ssm start-session --target ${aws_instance.demo.id} --region ${var.aws_region}"
 }
 
-output "ec2_private_key_path" {
-  description = "Path to the generated private SSH key"
-  value       = local_file.private_key.filename
-}
-
-output "ec2_ssh_command" {
-  description = "SSH command to connect to the instance"
-  value       = "ssh -i ${local_file.private_key.filename} ubuntu@${aws_instance.demo.public_ip}"
+output "alb_dns_name" {
+  description = "ALB DNS name"
+  value       = aws_lb.main.dns_name
 }
 
 # ============================================================================
-# Service URLs
+# Service URLs (via ALB)
 # ============================================================================
-
-output "traefik_dashboard_url" {
-  description = "Traefik Dashboard URL"
-  value       = "http://${aws_instance.demo.public_ip}:8080"
-}
 
 output "flask_app_url" {
-  description = "Flask Application URL"
-  value       = "http://${aws_instance.demo.public_ip}:5000"
+  description = "Flask Application URL (via ALB port 80)"
+  value       = "http://${aws_lb.main.dns_name}"
+}
+
+output "traefik_dashboard_url" {
+  description = "Traefik Dashboard URL (via ALB port 8080)"
+  value       = "http://${aws_lb.main.dns_name}:8080"
 }
 
 output "prometheus_url" {
-  description = "Prometheus URL"
-  value       = "http://${aws_instance.demo.public_ip}:9090"
+  description = "Prometheus URL (via ALB port 9090)"
+  value       = "http://${aws_lb.main.dns_name}:9090"
+}
+
+# Instructions for next steps
+output "next_steps" {
+  description = "Instructions for completing the setup"
+  value       = <<-EOT
+
+  ========================================
+  Elastic Cloud Deployment Created!
+  ========================================
+
+  Deployment ID: ${ec_deployment.traefik_otel_demo.id}
+
+  IMPORTANT NEXT STEPS:
+
+  1. Connect to the EC2 instance via SSM:
+     aws ssm start-session --target ${aws_instance.demo.id} --region ${var.aws_region}
+
+  2. Access services via ALB:
+     Flask App:          http://${aws_lb.main.dns_name}
+     Traefik Dashboard:  http://${aws_lb.main.dns_name}:8080
+     Prometheus:         http://${aws_lb.main.dns_name}:9090
+
+  3. View Elastic Cloud credentials:
+     terraform output -raw elasticsearch_password
+
+  4. Open Kibana:
+     ${ec_deployment.traefik_otel_demo.kibana.https_endpoint}
+
+  ========================================
+  EOT
 }

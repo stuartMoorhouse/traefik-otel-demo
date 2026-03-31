@@ -60,6 +60,10 @@ ENVEOF
 
 chown ubuntu:ubuntu $PROJECT_DIR/.env
 
+# Ensure SSM agent is running
+systemctl enable snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+systemctl start snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+
 # Create completion marker
 echo "User-data script completed successfully at $(date)" > /var/log/user-data-complete.log
 

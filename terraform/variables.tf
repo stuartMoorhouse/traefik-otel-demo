@@ -43,8 +43,8 @@ variable "elasticsearch_zone_count" {
 }
 
 # Networking
-variable "allowed_ssh_cidr" {
-  description = "CIDR block allowed to SSH into the EC2 instance. Defaults to your current public IP."
+variable "allowed_cidr" {
+  description = "CIDR block allowed to access the ALB. Defaults to your current public IP."
   type        = string
   default     = ""
 }
@@ -53,4 +53,11 @@ variable "vpc_cidr" {
   description = "CIDR block for VPC"
   type        = string
   default     = "10.0.0.0/16"
+}
+
+# Elastic Cloud PrivateLink
+variable "elastic_cloud_vpce_service_name" {
+  description = "VPC Endpoint service name for Elastic Cloud PrivateLink. Leave empty to disable."
+  type        = string
+  default     = ""
 }
