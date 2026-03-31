@@ -1,8 +1,4 @@
 {
-  "hooks": {
-    "tool_use": ".claude/hooks/pre-commit-security.sh",
-    "file_write": ".claude/hooks/format-code.sh"
-  },
   "customCommands": [
     ".claude/commands/security-review.md",
     ".claude/commands/fix-github-issue.md"

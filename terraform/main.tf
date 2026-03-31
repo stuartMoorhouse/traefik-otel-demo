@@ -50,7 +50,7 @@ resource "ec_deployment" "traefik_otel_demo" {
   # Lifecycle configuration to prevent accidental destruction
   lifecycle {
     # Prevent accidental deletion of the deployment
-    prevent_destroy = false  # Set to true in production!
+    prevent_destroy = false # Set to true in production!
 
     # Create new deployment before destroying old one (if replaced)
     create_before_destroy = false
@@ -96,7 +96,7 @@ resource "aws_internet_gateway" "main" {
 # Public Subnet
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = cidrsubnet(var.vpc_cidr, 8, 1)  # 10.0.1.0/24
+  cidr_block              = cidrsubnet(var.vpc_cidr, 8, 1) # 10.0.1.0/24
   availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true
 
@@ -136,6 +136,16 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
+# Detect the operator's public IP for security group rules
+data "http" "my_ip" {
+  url = "https://checkip.amazonaws.com"
+}
+
+locals {
+  my_ip_cidr       = "${chomp(data.http.my_ip.response_body)}/32"
+  allowed_ssh_cidr = var.allowed_ssh_cidr != "" ? var.allowed_ssh_cidr : local.my_ip_cidr
+}
+
 # ============================================================================
 # Security Group
 # ============================================================================
@@ -151,7 +161,7 @@ resource "aws_security_group" "demo_instance" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_ssh_cidr]
+    cidr_blocks = [local.allowed_ssh_cidr]
   }
 
   # HTTP for Traefik
@@ -178,7 +188,7 @@ resource "aws_security_group" "demo_instance" {
     from_port   = 8080
     to_port     = 8080
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_ssh_cidr]
+    cidr_blocks = [local.allowed_ssh_cidr]
   }
 
   # Flask App
@@ -196,7 +206,7 @@ resource "aws_security_group" "demo_instance" {
     from_port   = 9090
     to_port     = 9090
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_ssh_cidr]
+    cidr_blocks = [local.allowed_ssh_cidr]
   }
 
   # EDOT Collector Health
@@ -205,7 +215,7 @@ resource "aws_security_group" "demo_instance" {
     from_port   = 13133
     to_port     = 13133
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_ssh_cidr]
+    cidr_blocks = [local.allowed_ssh_cidr]
   }
 
   # EDOT Collector Metrics
@@ -214,7 +224,7 @@ resource "aws_security_group" "demo_instance" {
     from_port   = 8888
     to_port     = 8888
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_ssh_cidr]
+    cidr_blocks = [local.allowed_ssh_cidr]
   }
 
   # Allow all outbound traffic
@@ -293,17 +303,17 @@ resource "aws_instance" "demo" {
   vpc_security_group_ids = [aws_security_group.demo_instance.id]
 
   root_block_device {
-    volume_size           = 30  # 30GB root volume
+    volume_size           = 30 # 30GB root volume
     volume_type           = "gp3"
     delete_on_termination = true
     encrypted             = true
   }
 
   user_data = base64encode(templatefile("${path.module}/user-data.sh", {
-    elastic_endpoint           = ec_deployment.traefik_otel_demo.elasticsearch.https_endpoint
-    elastic_username           = ec_deployment.traefik_otel_demo.elasticsearch_username
-    elastic_password           = ec_deployment.traefik_otel_demo.elasticsearch_password
-    kibana_endpoint            = ec_deployment.traefik_otel_demo.kibana.https_endpoint
+    elastic_endpoint = ec_deployment.traefik_otel_demo.elasticsearch.https_endpoint
+    elastic_username = ec_deployment.traefik_otel_demo.elasticsearch_username
+    elastic_password = ec_deployment.traefik_otel_demo.elasticsearch_password
+    kibana_endpoint  = ec_deployment.traefik_otel_demo.kibana.https_endpoint
   }))
 
   # Wait for Elastic Cloud deployment to be ready

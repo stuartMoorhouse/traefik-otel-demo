@@ -8,7 +8,7 @@ variable "aws_region" {
 variable "aws_instance_type" {
   description = "EC2 instance type for the monitoring VM"
   type        = string
-  default     = "t3.large"  # 2 vCPUs, 8GB RAM
+  default     = "t3.large" # 2 vCPUs, 8GB RAM
 }
 
 variable "project_name" {
@@ -44,9 +44,9 @@ variable "elasticsearch_zone_count" {
 
 # Networking
 variable "allowed_ssh_cidr" {
-  description = "CIDR block allowed to SSH into the EC2 instance"
+  description = "CIDR block allowed to SSH into the EC2 instance. Defaults to your current public IP."
   type        = string
-  default     = "0.0.0.0/0"  # Restrict this in production!
+  default     = ""
 }
 
 variable "vpc_cidr" {

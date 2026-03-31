@@ -9,7 +9,7 @@ elasticsearch_size       = "1g"
 elasticsearch_zone_count = 1
 
 # Networking
-allowed_ssh_cidr = "YOUR.IP.ADDRESS/32"  # Replace with your IP for security
+# allowed_ssh_cidr = "203.0.113.10/32"  # Optional: defaults to your current public IP
 vpc_cidr         = "10.0.0.0/16"
 
 # Project

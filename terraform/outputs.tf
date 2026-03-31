@@ -48,7 +48,7 @@ output "kibana_endpoint" {
 # Instructions for next steps
 output "next_steps" {
   description = "Instructions for completing the setup"
-  value = <<-EOT
+  value       = <<-EOT
 
   ========================================
   Elastic Cloud Deployment Created!
@@ -92,7 +92,7 @@ output "next_steps" {
 # Summary output for easy .env file creation
 output "env_file_template" {
   description = "Template for .env file (fill in ELASTIC_API_KEY manually)"
-  value = <<-EOT
+  value       = <<-EOT
 # Copy these values to your .env file
 # OTel data will be sent directly to Elasticsearch (no APM server needed)
 ELASTIC_ENDPOINT=${ec_deployment.traefik_otel_demo.elasticsearch.https_endpoint}
@@ -105,7 +105,7 @@ ELASTIC_API_KEY=<CREATE_THIS_IN_KIBANA>
 # 4. Go to Stack Management → Security → API Keys → Create API Key
 # 5. Grant cluster privilege 'monitor' and index privileges on metrics-*/traces-*/logs-*
   EOT
-  sensitive = true
+  sensitive   = true
 }
 
 # ============================================================================
