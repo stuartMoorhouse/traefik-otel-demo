@@ -98,7 +98,7 @@ resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = cidrsubnet(var.vpc_cidr, 8, 1) # 10.0.1.0/24
   availability_zone       = data.aws_availability_zones.available.names[0]
-  map_public_ip_on_launch = true
+  map_public_ip_on_launch = false
 
   tags = {
     Name        = "${var.project_name}-public-subnet"
@@ -170,7 +170,7 @@ resource "aws_security_group" "demo_instance" {
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [local.allowed_ssh_cidr]
   }
 
   # HTTPS for Traefik
@@ -179,7 +179,7 @@ resource "aws_security_group" "demo_instance" {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [local.allowed_ssh_cidr]
   }
 
   # Traefik Dashboard
@@ -197,7 +197,7 @@ resource "aws_security_group" "demo_instance" {
     from_port   = 5000
     to_port     = 5000
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [local.allowed_ssh_cidr]
   }
 
   # Prometheus
@@ -227,12 +227,38 @@ resource "aws_security_group" "demo_instance" {
     cidr_blocks = [local.allowed_ssh_cidr]
   }
 
-  # Allow all outbound traffic
+  # HTTPS outbound (Elastic Cloud, Docker Hub, apt repos)
   egress {
-    description = "All outbound traffic"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "HTTPS outbound"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # HTTP outbound (apt repos, package mirrors)
+  egress {
+    description = "HTTP outbound"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # DNS outbound
+  egress {
+    description = "DNS UDP"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "udp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "DNS TCP"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -296,11 +322,19 @@ data "aws_ami" "ubuntu" {
 
 # EC2 Instance
 resource "aws_instance" "demo" {
-  ami                    = data.aws_ami.ubuntu.id
-  instance_type          = var.aws_instance_type
-  key_name               = aws_key_pair.demo.key_name
-  subnet_id              = aws_subnet.public.id
-  vpc_security_group_ids = [aws_security_group.demo_instance.id]
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = var.aws_instance_type
+  key_name                    = aws_key_pair.demo.key_name
+  subnet_id                   = aws_subnet.public.id
+  vpc_security_group_ids      = [aws_security_group.demo_instance.id]
+  associate_public_ip_address = true
+  disable_api_termination     = true
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+  }
 
   root_block_device {
     volume_size           = 30 # 30GB root volume

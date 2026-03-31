@@ -1,7 +1,6 @@
 from flask import Flask, jsonify, request
 import random
 import time
-import os
 import logging
 from prometheus_flask_exporter import PrometheusMetrics
 from opentelemetry import trace
@@ -78,4 +77,4 @@ def metrics_custom():
         }), 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000)  # nosec B104 — container-only, not exposed directly

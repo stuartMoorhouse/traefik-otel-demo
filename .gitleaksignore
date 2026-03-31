@@ -1,0 +1,8 @@
+# Terraform state backups contain auto-generated secrets (Elastic passwords, SSH keys).
+# These files are gitignored and never committed.
+terraform/terraform.tfstate.1762259131.backup:generic-api-key:303
+state/terraform.tfstate.backup:private-key:1104
+state/terraform.tfstate.backup:private-key:1151
+state/terraform.tfstate.backup:private-key:1152
+state/terraform.tfstate.backup:private-key:1153
+state/terraform.tfstate.backup:generic-api-key:1043
