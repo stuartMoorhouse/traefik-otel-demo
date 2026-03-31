@@ -146,16 +146,16 @@ connectors:
 exporters:
   # Native Elasticsearch OTLP endpoint
   otlphttp/elastic:
-    endpoint: https://f8eb737865d740c9b480ea81047abd59.us-east-1.aws.found.io/_otlp
+    endpoint: ${env:ELASTIC_ENDPOINT}/_otlp
     headers:
-      Authorization: ApiKey VmJVZVZwb0J2THhzam9MTEs0eGk6aUdvOXVqRUp6VEZ5blFkU20yZTN4dw==
+      Authorization: ApiKey ${env:ELASTIC_API_KEY}
     compression: gzip
 
   # Elasticsearch exporter for traces/logs
   elasticsearch:
     endpoints:
-      - https://f8eb737865d740c9b480ea81047abd59.us-east-1.aws.found.io:443
-    api_key: VmJVZVZwb0J2THhzam9MTEs0eGk6aUdvOXVqRUp6VEZ5blFkU20yZTN4dw==
+      - ${env:ELASTIC_ENDPOINT}
+    api_key: ${env:ELASTIC_API_KEY}
     compression: gzip
     mapping:
       mode: otel
