@@ -67,6 +67,8 @@ data "ec_stack" "latest" {
 # Data Sources
 # ============================================================================
 
+data "aws_caller_identity" "current" {}
+
 data "aws_availability_zones" "available" {
   state = "available"
 }
@@ -697,6 +699,18 @@ resource "aws_vpc_endpoint" "ssm" {
   security_group_ids  = [aws_security_group.vpc_endpoint.id]
   private_dns_enabled = true
 
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AllowVPCAccess"
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+      Action    = "ssm:*"
+      Resource  = "*"
+      Condition = { StringEquals = { "aws:SourceVpc" = aws_vpc.main.id } }
+    }]
+  })
+
   tags = {
     Name        = "${var.project_name}-ssm-vpce"
     Project     = var.project_name
@@ -712,6 +726,18 @@ resource "aws_vpc_endpoint" "ssmmessages" {
   subnet_ids          = [aws_subnet.private.id]
   security_group_ids  = [aws_security_group.vpc_endpoint.id]
   private_dns_enabled = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AllowVPCAccess"
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+      Action    = "ssmmessages:*"
+      Resource  = "*"
+      Condition = { StringEquals = { "aws:SourceVpc" = aws_vpc.main.id } }
+    }]
+  })
 
   tags = {
     Name        = "${var.project_name}-ssmmessages-vpce"
@@ -729,6 +755,18 @@ resource "aws_vpc_endpoint" "ec2messages" {
   security_group_ids  = [aws_security_group.vpc_endpoint.id]
   private_dns_enabled = true
 
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AllowVPCAccess"
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+      Action    = "ec2messages:*"
+      Resource  = "*"
+      Condition = { StringEquals = { "aws:SourceVpc" = aws_vpc.main.id } }
+    }]
+  })
+
   tags = {
     Name        = "${var.project_name}-ec2messages-vpce"
     Project     = var.project_name
@@ -742,6 +780,18 @@ resource "aws_vpc_endpoint" "s3" {
   service_name      = "com.amazonaws.${var.aws_region}.s3"
   vpc_endpoint_type = "Gateway"
   route_table_ids   = [aws_route_table.private.id]
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AllowVPCAccess"
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+      Action    = "s3:*"
+      Resource  = "*"
+      Condition = { StringEquals = { "aws:SourceVpc" = aws_vpc.main.id } }
+    }]
+  })
 
   tags = {
     Name        = "${var.project_name}-s3-vpce"
@@ -761,6 +811,18 @@ resource "aws_vpc_endpoint" "elastic_cloud" {
   subnet_ids          = [aws_subnet.private.id]
   security_group_ids  = [aws_security_group.vpc_endpoint.id]
   private_dns_enabled = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AllowVPCAccess"
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+      Action    = "*"
+      Resource  = "*"
+      Condition = { StringEquals = { "aws:SourceVpc" = aws_vpc.main.id } }
+    }]
+  })
 
   tags = {
     Name        = "${var.project_name}-elastic-cloud-vpce"
