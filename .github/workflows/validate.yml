@@ -1,0 +1,221 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Step 1: Secret Detection (hard blocker — runs first) ──────────────
+  secrets:
+    name: "1/10 Secrets — gitleaks"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Steps 2-9 run in parallel after secrets passes ────────────────────
+  lint:
+    name: "2/10 Lint/Format"
+    needs: secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Python — ruff
+      - uses: astral-sh/ruff-action@v3
+
+      # Terraform — fmt check + validate
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive
+        working-directory: terraform
+      - run: terraform init -backend=false
+        working-directory: terraform
+      - run: terraform validate
+        working-directory: terraform
+
+  checkov:
+    name: "3/10 Checkov — IaC security"
+    needs: secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform
+          framework: terraform
+          quiet: true
+          soft_fail: true
+          output_format: github_failed_only
+
+  dep-cves:
+    name: "5/10 Dependency CVEs — pip-audit"
+    needs: secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install pip-audit
+      - run: pip-audit -r requirements.txt
+
+  lockfile:
+    name: "6/10 Lockfile — pinning check"
+    needs: secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check requirements.txt pinning
+        run: |
+          unpinned=0
+          while IFS= read -r line; do
+            # Skip blank lines and comments
+            [[ -z "$line" || "$line" =~ ^# ]] && continue
+            if ! echo "$line" | grep -qE '=='; then
+              echo "::warning file=requirements.txt::Unpinned dependency: $line"
+              unpinned=$((unpinned + 1))
+            fi
+          done < requirements.txt
+          if [ "$unpinned" -gt 0 ]; then
+            echo "::warning::$unpinned unpinned dependencies found in requirements.txt"
+          else
+            echo "All dependencies pinned."
+          fi
+
+  container-cves:
+    name: "7/10 Container CVEs — trivy"
+    needs: secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t traefik-otel-demo:ci .
+
+      - uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: traefik-otel-demo:ci
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: table
+
+  dockerfile:
+    name: "8/10 Dockerfile — hadolint"
+    needs: secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: error
+
+  sast:
+    name: "9/10 SAST — semgrep"
+    needs: secrets
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: semgrep --config auto --error --quiet
+
+  tests:
+    name: "10/10 Tests"
+    needs: secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check for tests
+        id: check
+        run: |
+          if find . -name 'test_*.py' -o -name '*_test.py' | grep -q .; then
+            echo "has_tests=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_tests=false" >> "$GITHUB_OUTPUT"
+            echo "No test files found — skipping."
+          fi
+
+      - name: Run pytest
+        if: steps.check.outputs.has_tests == 'true'
+        run: pip install pytest && pytest -x -q
+
+  # Docker Compose validation (static only — no live smoke test in CI)
+  compose:
+    name: "Compose — static validation"
+    needs: secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Create a dummy .env so compose config doesn't fail on missing vars
+      - name: Create stub .env
+        run: |
+          echo "ELASTIC_ENDPOINT=https://placeholder.elastic.co" > .env
+          echo "ELASTIC_API_KEY=placeholder" >> .env
+
+      - run: docker compose config -q
+
+  # ── Summary gate ──────────────────────────────────────────────────────
+  summary:
+    name: "Validate — Summary"
+    if: always()
+    needs:
+      - secrets
+      - lint
+      - checkov
+      - dep-cves
+      - lockfile
+      - container-cves
+      - dockerfile
+      - sast
+      - tests
+      - compose
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report
+        run: |
+          echo "VALIDATE"
+          echo "════════"
+          echo "Secrets:      ${{ needs.secrets.result }}"
+          echo "Lint:         ${{ needs.lint.result }}"
+          echo "Checkov:      ${{ needs.checkov.result }}"
+          echo "Dep CVEs:     ${{ needs.dep-cves.result }}"
+          echo "Lockfile:     ${{ needs.lockfile.result }}"
+          echo "Container:    ${{ needs.container-cves.result }}"
+          echo "Dockerfile:   ${{ needs.dockerfile.result }}"
+          echo "SAST:         ${{ needs.sast.result }}"
+          echo "Tests:        ${{ needs.tests.result }}"
+          echo "Compose:      ${{ needs.compose.result }}"
+
+      - name: Gate
+        if: |
+          contains(needs.*.result, 'failure') ||
+          needs.secrets.result != 'success'
+        run: |
+          echo "::error::One or more validation checks failed."
+          exit 1
