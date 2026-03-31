@@ -242,12 +242,13 @@ resource "aws_route_table_association" "private" {
 # fck-nat Instance
 # ============================================================================
 
+# nosemgrep: terraform.aws.security.aws-ec2-has-public-ip.aws-ec2-has-public-ip — NAT instance requires public IP
 resource "aws_instance" "fck_nat" {
   ami                         = data.aws_ami.fck_nat.id
   instance_type               = "t4g.nano"
   subnet_id                   = aws_subnet.public.id
   vpc_security_group_ids      = [aws_security_group.fck_nat.id]
-  associate_public_ip_address = true # nosemgrep: terraform.aws.security.aws-ec2-has-public-ip.aws-ec2-has-public-ip — NAT instance requires public IP
+  associate_public_ip_address = true
   source_dest_check           = false
 
   metadata_options {
@@ -634,11 +635,10 @@ resource "aws_lb_target_group_attachment" "prometheus" {
 
 # --- Listeners ---
 
-# nosemgrep: terraform.aws.security.insecure-load-balancer-tls-version.insecure-load-balancer-tls-version — demo environment, no domain/cert for HTTPS
 resource "aws_lb_listener" "flask" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
-  protocol          = "HTTP"
+  protocol          = "HTTP" # nosemgrep: terraform.aws.security.insecure-load-balancer-tls-version.insecure-load-balancer-tls-version — demo, no domain/cert
 
   default_action {
     type             = "forward"
@@ -653,11 +653,10 @@ resource "aws_lb_listener" "flask" {
   }
 }
 
-# nosemgrep: terraform.aws.security.insecure-load-balancer-tls-version.insecure-load-balancer-tls-version
 resource "aws_lb_listener" "traefik" {
   load_balancer_arn = aws_lb.main.arn
   port              = 8080
-  protocol          = "HTTP"
+  protocol          = "HTTP" # nosemgrep: terraform.aws.security.insecure-load-balancer-tls-version.insecure-load-balancer-tls-version
 
   default_action {
     type             = "forward"
@@ -672,11 +671,10 @@ resource "aws_lb_listener" "traefik" {
   }
 }
 
-# nosemgrep: terraform.aws.security.insecure-load-balancer-tls-version.insecure-load-balancer-tls-version
 resource "aws_lb_listener" "prometheus" {
   load_balancer_arn = aws_lb.main.arn
   port              = 9090
-  protocol          = "HTTP"
+  protocol          = "HTTP" # nosemgrep: terraform.aws.security.insecure-load-balancer-tls-version.insecure-load-balancer-tls-version
 
   default_action {
     type             = "forward"
