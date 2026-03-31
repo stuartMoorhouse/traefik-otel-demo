@@ -77,4 +77,4 @@ def metrics_custom():
         }), 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)  # nosec B104 — container-only, not exposed directly
+    app.run(host='0.0.0.0', port=5000)  # nosec B104 # nosemgrep: python.flask.security.audit.app-run-param-config.avoid_app_run_with_bad_host — container-only, not exposed directly

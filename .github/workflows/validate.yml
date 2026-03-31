@@ -198,24 +198,53 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Report
+        if: always()
         run: |
+          status() {
+            case "$1" in
+              success)  echo "pass" ;;
+              failure)  echo "FAIL" ;;
+              *)        echo "$1" ;;
+            esac
+          }
+
+          # Console output
           echo "VALIDATE"
           echo "════════"
-          echo "Secrets:      ${{ needs.secrets.result }}"
-          echo "Lint:         ${{ needs.lint.result }}"
-          echo "Checkov:      ${{ needs.checkov.result }}"
-          echo "Dep CVEs:     ${{ needs.dep-cves.result }}"
-          echo "Lockfile:     ${{ needs.lockfile.result }}"
-          echo "Container:    ${{ needs.container-cves.result }}"
-          echo "Dockerfile:   ${{ needs.dockerfile.result }}"
-          echo "SAST:         ${{ needs.sast.result }}"
-          echo "Tests:        ${{ needs.tests.result }}"
-          echo "Compose:      ${{ needs.compose.result }}"
+          echo "Secrets:      $(status ${{ needs.secrets.result }})"
+          echo "Lint:         $(status ${{ needs.lint.result }})"
+          echo "Checkov:      $(status ${{ needs.checkov.result }})"
+          echo "Dep CVEs:     $(status ${{ needs.dep-cves.result }})"
+          echo "Lockfile:     $(status ${{ needs.lockfile.result }})"
+          echo "Container:    $(status ${{ needs.container-cves.result }})"
+          echo "Dockerfile:   $(status ${{ needs.dockerfile.result }})"
+          echo "SAST:         $(status ${{ needs.sast.result }})"
+          echo "Tests:        $(status ${{ needs.tests.result }})"
+          echo "Compose:      $(status ${{ needs.compose.result }})"
+
+          # Job summary (always visible on the workflow run page)
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Validate Results
+
+          | Check | Result |
+          |-------|--------|
+          | Secrets | \`${{ needs.secrets.result }}\` |
+          | Lint | \`${{ needs.lint.result }}\` |
+          | Checkov | \`${{ needs.checkov.result }}\` |
+          | Dep CVEs | \`${{ needs.dep-cves.result }}\` |
+          | Lockfile | \`${{ needs.lockfile.result }}\` |
+          | Container CVEs | \`${{ needs.container-cves.result }}\` |
+          | Dockerfile | \`${{ needs.dockerfile.result }}\` |
+          | SAST | \`${{ needs.sast.result }}\` |
+          | Tests | \`${{ needs.tests.result }}\` |
+          | Compose | \`${{ needs.compose.result }}\` |
+          EOF
 
       - name: Gate
         if: |
-          contains(needs.*.result, 'failure') ||
-          needs.secrets.result != 'success'
+          always() &&
+          (contains(needs.*.result, 'failure') ||
+          needs.secrets.result != 'success')
         run: |
           echo "::error::One or more validation checks failed."
           exit 1
