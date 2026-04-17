@@ -1,11 +1,11 @@
-FROM --platform=$BUILDPLATFORM cgr.dev/chainguard/python:latest-dev AS builder
+FROM --platform=$BUILDPLATFORM cgr.dev/chainguard/python:3.12-dev AS builder
 
 WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
 
-FROM cgr.dev/chainguard/python:latest
+FROM cgr.dev/chainguard/python:3.12
 
 WORKDIR /app
 
